@@ -1,4 +1,9 @@
-# Bokeh-Python-Visualization
+# CS 35 Final Project
+# An interactive data analysis tool for African Studies Database Project
+
+My final project is based on this github repo:
+
+******  REFERENCE  ******
 
 A Bokeh project developed for learning and teaching Bokeh interactive plotting! 
 
@@ -14,3 +19,7 @@ open a command prompt, change to the directory containing `bokeh_app` and run
 and will automatically open the interactive dashboard in your browser at localhost:5006. 
 
 Any comments, suggestions, improvements are greatly appreciated!
+
+****** ******
+
+I will udpate more readme in the coming weeks.
