@@ -5,60 +5,39 @@ import numpy as np
 from bokeh.plotting import figure
 from bokeh.models import (CategoricalColorMapper, HoverTool, 
 						  ColumnDataSource, Panel, 
-						  FuncTickFormatter, SingleIntervalTicker, LinearAxis)
+						  FuncTickFormatter, SingleIntervalTicker, LinearAxis, FactorRange)
 from bokeh.models.widgets import (CheckboxGroup, Slider, RangeSlider, 
 								  Tabs, CheckboxButtonGroup, 
 								  TableColumn, DataTable, Select)
 from bokeh.layouts import column, row, WidgetBox
 from bokeh.palettes import Category20_16
+from bokeh.palettes import Spectral6
+from bokeh.transform import factor_cmap
+import colorcet as cc
 
 # Make plot with histogram and return tab
-def histogram_tab(flights):
+def histogram_tab(data):
 
-	# Function to make a dataset for histogram based on a list of carriers
-	# a minimum delay, maximum delay, and histogram bin width
-	def make_dataset(carrier_list, range_start = -60, range_end = 120, bin_width = 5):
+	# Function to make a dataset for histogram based on a list of journals,
+	def make_dataset(topic_list):
 
 		# Dataframe to hold information
-		by_carrier = pd.DataFrame(columns=['proportion', 'left', 'right', 
-										   'f_proportion', 'f_interval',
-										   'name', 'color'])
-		
-		range_extent = range_end - range_start
+		sum_table=data.groupby('Journal').sum()
+		sum_table['Journal']=['AA','ASR','JMAS']
 
-		# Iterate through all the carriers
-		for i, carrier_name in enumerate(carrier_list):
+		table = sum_table[topic_list]
+		new_table = pd.melt(table,var_name='topics',value_name = 'count')
+		journal = ["AA","ASR","JMAS"]*len(topic_list)
+		new_table['Journal'] = journal
 
-			# Subset to the carrier
-			subset = flights[flights['name'] == carrier_name]
+		grouped = new_table.groupby(['topics','Journal'])
+		x = [name for name,group in grouped]
+		counts = new_table.groupby(['topics','Journal'])['count'].sum().values
 
-			# Create a histogram with 5 minute bins
-			arr_hist, edges = np.histogram(subset['arr_delay'], 
-										   bins = int(range_extent / bin_width), 
-										   range = [range_start, range_end])
+		source = ColumnDataSource(data=dict(x=x, counts=counts))
+		p = figure(x_range=FactorRange(*x), plot_height=250, title="Topics Break Down by Year")
+		return source,p
 
-			# Divide the counts by the total to get a proportion
-			arr_df = pd.DataFrame({'proportion': arr_hist / np.sum(arr_hist), 'left': edges[:-1], 'right': edges[1:] })
-
-			# Format the proportion 
-			arr_df['f_proportion'] = ['%0.5f' % proportion for proportion in arr_df['proportion']]
-
-			# Format the interval
-			arr_df['f_interval'] = ['%d to %d minutes' % (left, right) for left, right in zip(arr_df['left'], arr_df['right'])]
-
-			# Assign the carrier for labels
-			arr_df['name'] = carrier_name
-
-			# Color each carrier differently
-			arr_df['color'] = Category20_16[i]
-
-			# Add to the overall dataframe
-			by_carrier = by_carrier.append(arr_df)
-
-		# Overall dataframe
-		by_carrier = by_carrier.sort_values(['name', 'left'])
-
-		return ColumnDataSource(by_carrier)
 
 	def style(p):
 		# Title 
@@ -78,22 +57,20 @@ def histogram_tab(flights):
 
 		return p
 	
-	def make_plot(src):
-		# Blank plot with correct labels
-		p = figure(plot_width = 700, plot_height = 700, 
-				  title = 'Histogram of Arrival Delays by Airline',
-				  x_axis_label = 'Delay (min)', y_axis_label = 'Proportion')
+	def make_plot(src,p):
+		journal = ["AA","ASR","JMAS"]
+		
+		palette = [cc.rainbow[i*15] for i in range(17)]
+		p.vbar(x='x', top='counts', width=0.9, source=src,fill_color=factor_cmap('x', palette=palette, factors=journal, start=1, end=2))
 
-		# Quad glyphs to create a histogram
-		p.quad(source = src, bottom = 0, top = 'proportion', left = 'left', right = 'right',
-			   color = 'color', fill_alpha = 0.7, hover_fill_color = 'color', legend = 'name',
-			   hover_fill_alpha = 1.0, line_color = 'black')
+		p.y_range.start = 0
+		p.x_range.range_padding = 0.1
+		p.xaxis.major_label_orientation = 1
+		p.xgrid.grid_line_color = None
+		hover = HoverTool()
+		hover.tooltips = [("count","@counts")]
 
-		# Hover tool with vline mode
-		hover = HoverTool(tooltips=[('Carrier', '@name'), 
-									('Delay', '@f_interval'),
-									('Proportion', '@f_proportion')],
-						  mode='vline')
+		hover.mode = 'vline'
 
 		p.add_tools(hover)
 
@@ -105,49 +82,26 @@ def histogram_tab(flights):
 	
 	
 	def update(attr, old, new):
-		carriers_to_plot = [carrier_selection.labels[i] for i in carrier_selection.active]
+		topics_to_plot = [topic_selection.labels[i] for i in topic_selection.active]
 		
-		new_src = make_dataset(carriers_to_plot,
-							   range_start = range_select.value[0],
-							   range_end = range_select.value[1],
-							   bin_width = binwidth_select.value)
-		
-		
-
+		new_src,p = make_dataset(topics_to_plot)
 		src.data.update(new_src.data)
 		
 	# Carriers and colors
-	available_carriers = list(set(flights['name']))
-	available_carriers.sort()
-
-
-	airline_colors = Category20_16
-	airline_colors.sort()
+	available_topics = ["topics_domestic_politics","topics_international_relations", "topics_society","topics_econ"]
 		
-	carrier_selection = CheckboxGroup(labels=available_carriers, 
-									  active = [0, 1])
-	carrier_selection.on_change('active', update)
-	
-	binwidth_select = Slider(start = 1, end = 30, 
-							 step = 1, value = 5,
-							 title = 'Bin Width (min)')
-	binwidth_select.on_change('value', update)
-	
-	range_select = RangeSlider(start = -60, end = 180, value = (-60, 120),
-							   step = 5, title = 'Range of Delays (min)')
-	range_select.on_change('value', update)
+	topic_selection = CheckboxGroup(labels=available_topics, 
+									  active = [0, 1,2,3])
+	topic_selection.on_change('active', update)
 	
 	# Initial carriers and data source
-	initial_carriers = [carrier_selection.labels[i] for i in carrier_selection.active]
+	initial_topics = [topic_selection.labels[i] for i in topic_selection.active]
 	
-	src = make_dataset(initial_carriers,
-					   range_start = range_select.value[0],
-					   range_end = range_select.value[1],
-					   bin_width = binwidth_select.value)
-	p = make_plot(src)
+	src,p = make_dataset(initial_topics)
+	p = make_plot(src,p)
 	
 	# Put controls in a single element
-	controls = WidgetBox(carrier_selection, binwidth_select, range_select)
+	controls = WidgetBox(topic_selection)
 	
 	# Create a row layout
 	layout = row(controls, p)
